@@ -5,8 +5,7 @@ A multi-user web application for active traders to connect their cTrader account
 Built by an active gold/FX trader (verified MyFXBook +174%) for traders who actually need it.
 
 ## Screenshots
-
-> _Add screenshots of `/dashboard/` here after pushing to GitHub_
+<img width="1917" height="908" alt="Screenshot 2026-05-01 174500" src="https://github.com/user-attachments/assets/2fda3547-be7e-4fc5-b829-0ae4f1b5d7e0" />
 
 ## Why this exists
 
