@@ -50,7 +50,23 @@
             </div>
         </div>
     </div>
-
+{% if equity_chart_json %}
+<h2>Equity Curve</h2>
+<div id="equity-chart" style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px;"></div>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+{% if monthly_chart_json %}
+<h2>Monthly P&L</h2>
+<div id="monthly-chart" style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px;"></div>
+<script>
+    const monthlyData = {{ monthly_chart_json|safe }};
+    Plotly.newPlot('monthly-chart', monthlyData.data, monthlyData.layout, {responsive: true, displayModeBar: false});
+</script>
+{% endif %}
+<script>
+    const equityData = {{ equity_chart_json|safe }};
+    Plotly.newPlot('equity-chart', equityData.data, equityData.layout, {responsive: true, displayModeBar: false});
+</script>
+{% endif %}
     <h2>By Symbol</h2>
     <table>
         <thead>
