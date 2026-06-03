@@ -1,82 +1,194 @@
-# Trading Dashboard
+# trading-dashboard
 
-A multi-user web application for active traders to connect their cTrader accounts and visualise their trading performance, with an AI-powered journaling assistant (in development) for strategy adherence and behavioural pattern analysis.
+A full-stack Django SaaS trading dashboard with real trade data from a live cTrader account.
 
-Built by an active gold/FX trader (verified MyFXBook +174%) for traders who actually need it.
+Built with Django 5, DRF REST API, PostgreSQL, Celery, Redis, Django Channels (WebSockets), and Google OAuth. Part of the [trading-platform](https://github.com/DeepaliCS/trading-platform) ecosystem.
 
-## Screenshots
-<img width="1917" height="908" alt="Screenshot 2026-05-01 174500" src="https://github.com/user-attachments/assets/2fda3547-be7e-4fc5-b829-0ae4f1b5d7e0" />
+---
 
-## Why this exists
+## Features
 
-Most retail trading dashboards are either generic (MyFXBook, FXBlue) or locked into specific brokers. Prop firm traders (FTMO, MyForexFunds) are an underserved segment with very specific needs: strategy adherence tracking, drawdown rule monitoring, and behavioural pattern recognition.
+- Google OAuth login (django-allauth)
+- Multi-tenant architecture — each user sees only their own trades
+- Fernet-encrypted cTrader API credentials (per user, stored encrypted in PostgreSQL)
+- Incremental trade sync from live cTrader account via Celery async task
+- Real-time sync status via Django Channels WebSocket
+- Live price ticker via WebSocket (`ws/prices/<symbol>/`)
+- Plotly equity curve and monthly P&L charts
+- DRF REST API — 7 endpoints with token + session auth
+- Calls trading-analytics service for advanced metrics and reports
+- Docker + docker-compose (web + worker + PostgreSQL + Redis)
+- 37 tests, 100% passing
+- GitHub Actions CI/CD
 
-This project is a foundation for those features, with multi-tenant architecture from day one.
+---
 
-## Tech stack
+## Stack
 
-| Layer | Choice |
+| Layer | Technology |
 |---|---|
-| Backend | Django 5.0 + Django REST Framework |
-| Database | PostgreSQL (production), SQLite (dev) |
-| Auth | Django + django-allauth (Google OAuth) + JWT for API |
-| Broker integration | cTrader Open API via `ctrader-open-api` (Twisted-based async protocol) |
-| AI | Anthropic Claude API (planned — trade journaling) |
-| Visualisation | Plotly |
-| Deployment | Render (planned) |
+| Framework | Django 5, Django REST Framework |
+| Auth | Google OAuth (django-allauth) |
+| Database | PostgreSQL |
+| Async tasks | Celery, Redis |
+| WebSockets | Django Channels |
+| Charts | Plotly |
+| Encryption | Fernet (cryptography) |
+| Containerisation | Docker, docker-compose |
+| Tests | pytest, pytest-django |
+| CI | GitHub Actions |
 
-## Architecture highlights
+---
 
-- **Per-user encrypted credentials.** cTrader API secrets stored encrypted-at-rest using Fernet symmetric encryption, with key separation from the database. See [`trading/encryption.py`](trading/encryption.py) and the property-based encrypt/decrypt pattern in [`trading/models.py`](trading/models.py).
-- **Twisted reactor integrated with Django ORM.** The cTrader Open API is built on Twisted's async protocol. The sync service ([`trading/services/ctrader_client.py`](trading/services/ctrader_client.py)) bridges Twisted callbacks to Django's ORM cleanly, with chunked weekly fetches respecting cTrader's API rate limits.
-- **Incremental sync.** A `SyncLog` model tracks `last_synced_at` per user, so subsequent syncs only fetch new deals — minimising API calls and avoiding duplicate data.
-- **Multi-tenancy from day one.** All trade and credential models are scoped by `user` foreign key with appropriate indexes.
-
-## Local development
-
-### Prerequisites
-
-- Python 3.11
-- A cTrader account + API credentials from [openapi.ctrader.com](https://openapi.ctrader.com)
-
-### Setup
+## Installation
 
 ```bash
-# Clone and create env
-git clone <your-repo-url>
+git clone https://github.com/DeepaliCS/trading-dashboard
 cd trading-dashboard
-conda create -n trading-dashboard python=3.11 -y
-conda activate trading-dashboard
 pip install -r requirements.txt
-
-# Configure
 cp .env.example .env
-# Edit .env with your cTrader credentials and generated keys
-python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Migrate and run
+# Fill in your .env values
 python manage.py migrate
-python manage.py createsuperuser
-python manage.py setup_ctrader --username <your-username>
-python manage.py sync_trades --username <your-username>
 python manage.py runserver
 ```
 
-Visit `http://localhost:8000/dashboard/`.
+---
 
-## Roadmap
+## Quick Start with Docker
 
-- [x] cTrader account connection (encrypted, multi-tenant)
-- [x] Trade history sync (incremental, chunked)
-- [x] Dashboard with equity curve + P&L breakdown
-- [ ] Google OAuth (django-allauth)
-- [ ] AI trade journaling with Claude API (strategy adherence, pattern detection, weekly reports)
-- [ ] Deploy to Render
-- [ ] Architecture diagram
+```bash
+docker-compose up --build
+```
 
-## About the author
+Services:
+- Web: `http://localhost:8000`
+- PostgreSQL: `localhost:5432`
+- Redis: `localhost:6379`
 
-Senior Python developer (8 years, primarily Django + AWS). Currently based in Dubai, building this project as a portfolio piece while job hunting for senior backend roles.
+---
 
-[LinkedIn](https://www.linkedin.com/in/ddiippssyy/)
+## API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/trades/` | Paginated trade list (filterable by symbol, direction) |
+| GET | `/api/v1/trades/<id>/` | Single trade detail |
+| GET | `/api/v1/trades/stats/` | Summary stats: win rate, PnL, trade count |
+| POST | `/api/v1/credentials/` | Save encrypted cTrader credentials |
+| POST | `/api/v1/sync/` | Trigger async trade sync (Celery) |
+| GET | `/api/v1/sync/status/` | Last sync log |
+| GET | `/api/v1/analytics/report/` | Full strategy report (via trading-analytics) |
+
+All endpoints require authentication (session or token).
+
+---
+
+## WebSocket Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `ws/prices/<symbol>/` | Real-time spot price stream |
+| `ws/sync/<user_id>/` | Trade sync status updates |
+
+Example:
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws/prices/XAUUSD/');
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    console.log(`${data.symbol}: bid=${data.bid} ask=${data.ask}`);
+};
+```
+
+---
+
+## Environment Variables
+
+```env
+SECRET_KEY=your-secret-key
+DEBUG=True
+DB_NAME=trading_dashboard
+DB_USER=postgres
+DB_PASSWORD=your_password
+DB_HOST=localhost
+REDIS_URL=redis://localhost:6379/0
+FIELD_ENCRYPTION_KEY=your-fernet-key
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+ANALYTICS_API_URL=http://localhost:8001/api/v1
+CTRADER_CLIENT_ID=your-ctrader-client-id
+CTRADER_CLIENT_SECRET=your-ctrader-client-secret
+CTRADER_ACCESS_TOKEN=your-access-token
+CTRADER_ACCOUNT_ID=your-account-id
+```
+
+Generate Fernet key:
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+---
+
+## Running Tests
+
+```bash
+pytest tests/ -v
+```
+
+---
+
+## Project Structure
+
+```
+trading-dashboard/
+├── config/
+│   ├── settings.py          ← Django settings (PostgreSQL, Channels, Celery, allauth)
+│   ├── settings_test.py     ← Test settings (SQLite in-memory)
+│   ├── asgi.py              ← ASGI + Django Channels routing
+│   └── urls.py              ← URL configuration
+├── trading/
+│   ├── models.py            ← CTraderCredentials, Symbol, Trade, SyncLog
+│   ├── encryption.py        ← Fernet encryption helpers
+│   ├── tasks.py             ← Celery tasks (sync, metrics)
+│   ├── consumers.py         ← Django Channels WebSocket consumers
+│   ├── routing.py           ← WebSocket URL routing
+│   ├── services/
+│   │   ├── ctrader_client.py ← cTrader sync (Twisted + Protobuf)
+│   │   └── data_fetcher.py
+│   └── api/
+│       ├── serializers.py   ← DRF serializers
+│       ├── views.py         ← 7 REST API views
+│       └── urls.py          ← API URL routing
+├── dashboard/
+│   ├── views.py             ← Plotly chart views
+│   ├── services/
+│   │   └── analytics_client.py ← HTTP client for trading-analytics API
+│   └── templates/
+│       └── dashboard/home.html
+├── tests/
+│   ├── test_models.py       ← 18 model tests
+│   └── test_api.py          ← 19 API tests
+├── .github/workflows/
+│   └── test.yml             ← GitHub Actions CI
+├── Dockerfile
+├── docker-compose.yml
+├── pytest.ini
+└── requirements.txt
+```
+
+---
+
+## Part of the Trading Platform Ecosystem
+
+| Repo | Role |
+|---|---|
+| [ctrader-client](https://github.com/DeepaliCS/ctrader-client) | Async cTrader API client — data source |
+| [trading-analytics](https://github.com/DeepaliCS/trading-analytics) | ETL pipeline + analytics API |
+| **trading-dashboard** | This repo — Django SaaS dashboard |
+| [ai-journal](https://github.com/DeepaliCS/ai-journal) | AI trade journaling (RAG + Claude API) |
+
+---
+
+## Author
+
+Senior Python developer specialising in Django, FastAPI, AWS and trading systems.
+[GitHub](https://github.com/DeepaliCS)

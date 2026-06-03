@@ -1,9 +1,18 @@
 from django.contrib import admin
-from django.urls import include, path
-from django.views.generic import RedirectView
+from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # Google OAuth + allauth
+    path('accounts/', include('allauth.urls')),
+
+    # Dashboard (Plotly charts, HTML views)
     path('dashboard/', include('dashboard.urls')),
-    path('', RedirectView.as_view(url='/dashboard/', permanent=False)),
+
+    # Trading REST API
+    path('api/v1/', include('trading.api.urls')),
+
+    # Root redirect
+    path('', include('dashboard.urls')),
 ]
