@@ -14,6 +14,7 @@
         .pos { color: #3fb950; }
         .neg { color: #f85149; }
         h2 { margin: 32px 0 12px; font-weight: 600; font-size: 18px; }
+        .badge-analytics { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; background: rgba(63, 185, 80, 0.15); color: #3fb950; margin-left: 8px; vertical-align: middle; }
         table { width: 100%; border-collapse: collapse; background: #161b22; border-radius: 8px; overflow: hidden; }
         th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #30363d; font-size: 14px; }
         th { background: #1c2128; color: #8b949e; font-weight: 500; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
@@ -26,63 +27,119 @@
 </head>
 <body>
     <h1>Trading Dashboard</h1>
-    <div class="subtitle">{{ user.username }} · {{ stats.total_trades }} closed trades</div>
+    <div class="subtitle">
+        {{ user.username }} · {{ metrics.total_trades }} closed trades
+        {% if analytics_connected %}
+        <span class="badge-analytics">trading-analytics ✓</span>
+        {% endif %}
+        {% if ctrader_client_version %}
+        <span class="badge-analytics">ctrader-client v{{ ctrader_client_version }} ✓</span>
+        {% endif %}
+    </div>
 
     <div class="stats">
         <div class="stat">
             <div class="label">Total P&L</div>
-            <div class="value {% if stats.total_pnl and stats.total_pnl > 0 %}pos{% elif stats.total_pnl and stats.total_pnl < 0 %}neg{% endif %}">
-                {{ stats.total_pnl|default:"0"|floatformat:2 }}
+            <div class="value {% if metrics.total_net_profit > 0 %}pos{% elif metrics.total_net_profit < 0 %}neg{% endif %}">
+                {{ metrics.total_net_profit|floatformat:2 }}
             </div>
         </div>
         <div class="stat">
             <div class="label">Win Rate</div>
-            <div class="value">{{ win_rate|floatformat:1 }}%</div>
+            <div class="value">{{ metrics.win_rate|floatformat:1 }}%</div>
         </div>
         <div class="stat">
             <div class="label">Wins / Losses</div>
-            <div class="value"><span class="pos">{{ wins }}</span> / <span class="neg">{{ losses }}</span></div>
+            <div class="value">
+                <span class="pos">{{ metrics.winning_trades }}</span> / <span class="neg">{{ metrics.losing_trades }}</span>
+            </div>
         </div>
         <div class="stat">
             <div class="label">Avg P&L per Trade</div>
-            <div class="value {% if stats.avg_pnl and stats.avg_pnl > 0 %}pos{% elif stats.avg_pnl and stats.avg_pnl < 0 %}neg{% endif %}">
-                {{ stats.avg_pnl|default:"0"|floatformat:2 }}
+            <div class="value {% if metrics.expectancy > 0 %}pos{% elif metrics.expectancy < 0 %}neg{% endif %}">
+                {{ metrics.expectancy|floatformat:2 }}
+            </div>
+        </div>
+        <div class="stat">
+            <div class="label">Profit Factor</div>
+            <div class="value pos">{{ metrics.profit_factor|floatformat:2 }}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Sharpe Ratio</div>
+            <div class="value {% if metrics.sharpe_ratio > 0 %}pos{% else %}neg{% endif %}">
+                {{ metrics.sharpe_ratio|floatformat:2 }}
+            </div>
+        </div>
+        <div class="stat">
+            <div class="label">Max Drawdown</div>
+            <div class="value neg">{{ metrics.max_drawdown|floatformat:2 }}%</div>
+        </div>
+        <div class="stat">
+            <div class="label">Expectancy</div>
+            <div class="value {% if metrics.expectancy > 0 %}pos{% else %}neg{% endif %}">
+                {{ metrics.expectancy|floatformat:2 }}
             </div>
         </div>
     </div>
-{% if equity_chart_json %}
-<h2>Equity Curve</h2>
-<div id="equity-chart" style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px;"></div>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
-{% if monthly_chart_json %}
-<h2>Monthly P&L</h2>
-<div id="monthly-chart" style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px;"></div>
-<script>
-    const monthlyData = {{ monthly_chart_json|safe }};
-    Plotly.newPlot('monthly-chart', monthlyData.data, monthlyData.layout, {responsive: true, displayModeBar: false});
-</script>
-{% endif %}
-<script>
-    const equityData = {{ equity_chart_json|safe }};
-    Plotly.newPlot('equity-chart', equityData.data, equityData.layout, {responsive: true, displayModeBar: false});
-</script>
-{% endif %}
+
+    {% if equity_chart_json %}
+    <h2>Equity Curve</h2>
+    <div id="equity-chart" style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px;"></div>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <script>
+        const equityData = {{ equity_chart_json|safe }};
+        Plotly.newPlot('equity-chart', equityData.data, equityData.layout, {responsive: true, displayModeBar: false});
+    </script>
+    {% endif %}
+
+    {% if monthly_chart_json %}
+    <h2>Monthly P&L</h2>
+    <div id="monthly-chart" style="background:#161b22; border:1px solid #30363d; border-radius:8px; padding:8px;"></div>
+    <script>
+        const monthlyData = {{ monthly_chart_json|safe }};
+        Plotly.newPlot('monthly-chart', monthlyData.data, monthlyData.layout, {responsive: true, displayModeBar: false});
+    </script>
+    {% endif %}
+
     <h2>By Symbol</h2>
     <table>
         <thead>
-            <tr><th>Symbol</th><th class="right">Trades</th><th class="right">Total P&L</th></tr>
+            <tr><th>Symbol</th><th class="right">Trades</th><th class="right">Win Rate</th><th class="right">Total P&L</th><th class="right">Profit Factor</th></tr>
         </thead>
         <tbody>
-            {% for row in by_symbol %}
+            {% for symbol, data in by_symbol.items %}
             <tr>
-                <td>{{ row.symbol__name }}</td>
-                <td class="right">{{ row.trade_count }}</td>
-                <td class="right {% if row.total_pnl > 0 %}pos{% elif row.total_pnl < 0 %}neg{% endif %}">
-                    {{ row.total_pnl|floatformat:2 }}
+                <td>{{ symbol }}</td>
+                <td class="right">{{ data.total_trades }}</td>
+                <td class="right">{{ data.win_rate|floatformat:1 }}%</td>
+                <td class="right {% if data.total_net_profit > 0 %}pos{% elif data.total_net_profit < 0 %}neg{% endif %}">
+                    {{ data.total_net_profit|floatformat:2 }}
+                </td>
+                <td class="right">{{ data.profit_factor|floatformat:2 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" style="color:#8b949e">No trades yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>By Direction</h2>
+    <table>
+        <thead>
+            <tr><th>Direction</th><th class="right">Trades</th><th class="right">Win Rate</th><th class="right">Total P&L</th></tr>
+        </thead>
+        <tbody>
+            {% for direction, data in by_direction.items %}
+            <tr>
+                <td><span class="badge {% if direction == 'BUY' %}buy{% else %}sell{% endif %}">{{ direction }}</span></td>
+                <td class="right">{{ data.total_trades }}</td>
+                <td class="right">{{ data.win_rate|floatformat:1 }}%</td>
+                <td class="right {% if data.total_net_profit > 0 %}pos{% elif data.total_net_profit < 0 %}neg{% endif %}">
+                    {{ data.total_net_profit|floatformat:2 }}
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="3" style="color:#8b949e">No trades yet.</td></tr>
+            <tr><td colspan="4" style="color:#8b949e">No data.</td></tr>
             {% endfor %}
         </tbody>
     </table>

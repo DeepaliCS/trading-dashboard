@@ -6,6 +6,7 @@ from django.shortcuts import render
 
 from trading.models import Trade
 from dashboard.services.analytics_client import AnalyticsClient
+from ctrader import CTraderClient, __version__ as ctrader_version
 
 
 def _trades_to_records(trades):
@@ -38,8 +39,14 @@ def home(request):
 
     if not trades.exists():
         return render(request, 'dashboard/home.html', {
-            'no_data': True,
+            'metrics': metrics,
+            'by_symbol': by_symbol,
+            'by_direction': by_direction,
             'recent_trades': recent_trades,
+            'equity_chart_json': equity_chart_json,
+            'monthly_chart_json': monthly_chart_json,
+            'analytics_connected': True,
+            'ctrader_client_version': ctrader_version,  # ← add this
         })
 
     records = _trades_to_records(trades)
@@ -64,6 +71,7 @@ def home(request):
         'equity_chart_json': equity_chart_json,
         'monthly_chart_json': monthly_chart_json,
         'analytics_connected': True,
+        'ctrader_client_version': ctrader_version,
     })
 
 
