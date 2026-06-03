@@ -1,4 +1,4 @@
-from django.db.models import Avg, Count, Sum
+
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -9,7 +9,6 @@ from trading.api.serializers import (
     CTraderCredentialsSerializer,
     SyncLogSerializer,
     TradeSerializer,
-    TradeStatsSerializer,
 )
 
 
@@ -59,36 +58,32 @@ class TradeDetailView(generics.RetrieveAPIView):
 
 # ------------------------------------------------------------------
 # Stats
-# ------------------------------------------------------------------
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def trade_stats(request):
     """
     GET /api/v1/trades/stats/
-    Returns summary stats: total trades, PnL, win rate.
+    Returns summary stats from trading-analytics service.
     """
-    trades = Trade.objects.filter(user=request.user, is_closing=True)
-    stats = trades.aggregate(
-        total_trades=Count('id'),
-        total_pnl=Sum('pnl'),
-        avg_pnl=Avg('pnl'),
-    )
-    wins = trades.filter(pnl__gt=0).count()
-    losses = trades.filter(pnl__lte=0).count()
-    total = stats['total_trades'] or 0
-    win_rate = (wins / total * 100) if total > 0 else 0.0
+    from dashboard.services.analytics_client import AnalyticsClient
+    from dashboard.views import _trades_to_records
 
-    data = {
-        'total_trades': total,
-        'total_pnl': stats['total_pnl'] or 0,
-        'avg_pnl': stats['avg_pnl'] or 0,
-        'wins': wins,
-        'losses': losses,
-        'win_rate': round(win_rate, 2),
-    }
-    serializer = TradeStatsSerializer(data)
-    return Response(serializer.data)
+    trades = Trade.objects.filter(
+        user=request.user, is_closing=True
+    ).select_related('symbol')
+
+    if not trades.exists():
+        return Response({'error': 'No trades found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    records = _trades_to_records(trades)
+    client = AnalyticsClient()
+    metrics = client.get_metrics(records)
+
+    if 'error' in metrics:
+        return Response(metrics, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    return Response(metrics)
+
 
 
 # ------------------------------------------------------------------

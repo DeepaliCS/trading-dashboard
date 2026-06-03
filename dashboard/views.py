@@ -1,75 +1,90 @@
 import json
-
 import plotly.graph_objects as go
-from django.contrib.auth.decorators import login_required
-from django.db.models import Avg, Count, Sum
-from django.shortcuts import render
 from plotly.utils import PlotlyJSONEncoder
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
 
 from trading.models import Trade
+from dashboard.services.analytics_client import AnalyticsClient
+
+
+def _trades_to_records(trades):
+    """Convert Django Trade queryset to list of dicts for trading-analytics API."""
+    return [
+        {
+            'position_id': t.id,
+            'symbol': t.symbol.name,
+            'direction': t.direction,
+            'volume': float(t.volume),
+            'entry_price': float(t.fill_price),
+            'close_price': float(t.close_price or t.fill_price),
+            'net_profit': float(t.pnl),
+            'commission': float(t.commission),
+            'swap': 0.0,
+            'open_time': str(t.executed_at),
+            'close_time': str(t.executed_at),
+        }
+        for t in trades
+    ]
 
 
 @login_required
 def home(request):
-    trades = Trade.objects.filter(user=request.user, is_closing=True)
+    trades = Trade.objects.filter(
+        user=request.user, is_closing=True
+    ).select_related('symbol').order_by('executed_at')
 
-    stats = trades.aggregate(
-        total_trades=Count('id'),
-        total_pnl=Sum('pnl'),
-        avg_pnl=Avg('pnl'),
-    )
-    wins = trades.filter(pnl__gt=0).count()
-    losses = trades.filter(pnl__lt=0).count()
-    win_rate = (wins / stats['total_trades'] * 100) if stats['total_trades'] else 0
+    recent_trades = trades.order_by('-executed_at')[:25]
 
-    by_symbol = (
-        trades.values('symbol__name')
-        .annotate(trade_count=Count('id'), total_pnl=Sum('pnl'))
-        .order_by('-total_pnl')
-    )
+    if not trades.exists():
+        return render(request, 'dashboard/home.html', {
+            'no_data': True,
+            'recent_trades': recent_trades,
+        })
 
-    recent_trades = trades.select_related('symbol').order_by('-executed_at')[:25]
+    records = _trades_to_records(trades)
+    client = AnalyticsClient()
 
-    equity_chart_json = _build_equity_curve(trades)
-    monthly_chart_json = _build_monthly_pnl(trades)
+    # -- All metrics from trading-analytics --
+    metrics = client.get_metrics(records)
+    monthly_pnl = client.get_monthly_pnl(records)
+    equity_curve = client.get_equity_curve(records)
+    by_symbol = client.get_by_symbol(records)
+    by_direction = client.get_by_direction(records)
+
+    # -- Build charts from trading-analytics data --
+    equity_chart_json = _build_equity_curve(equity_curve)
+    monthly_chart_json = _build_monthly_pnl(monthly_pnl)
 
     return render(request, 'dashboard/home.html', {
-        'stats': stats,
-        'wins': wins,
-        'losses': losses,
-        'win_rate': win_rate,
+        'metrics': metrics,
         'by_symbol': by_symbol,
+        'by_direction': by_direction,
         'recent_trades': recent_trades,
         'equity_chart_json': equity_chart_json,
         'monthly_chart_json': monthly_chart_json,
+        'analytics_connected': True,
     })
 
 
-def _build_equity_curve(trades):
-    """Cumulative P&L over time."""
-    rows = trades.order_by('executed_at').values_list('executed_at', 'pnl')
-    if not rows:
+def _build_equity_curve(equity_data: list[dict]):
+    """Build Plotly equity curve from trading-analytics data."""
+    if not equity_data or 'error' in equity_data[0]:
         return None
 
-    dates = []
-    cumulative = []
-    running = 0
-    for executed_at, pnl in rows:
-        running += float(pnl)
-        dates.append(executed_at)
-        cumulative.append(round(running, 2))
+    dates = [row['close_time'] for row in equity_data]
+    values = [row['equity'] for row in equity_data]
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=dates,
-        y=cumulative,
+        y=values,
         mode='lines',
         line=dict(color='#3fb950', width=2),
         fill='tozeroy',
         fillcolor='rgba(63, 185, 80, 0.1)',
-        hovertemplate='<b>%{x|%d %b %Y}</b><br>Equity: %{y:.2f}<extra></extra>',
+        hovertemplate='<b>%{x}</b><br>Equity: %{y:.2f}<extra></extra>',
     ))
-
     fig.update_layout(
         template='plotly_dark',
         paper_bgcolor='#161b22',
@@ -78,26 +93,19 @@ def _build_equity_curve(trades):
         margin=dict(l=40, r=20, t=20, b=40),
         height=380,
         xaxis=dict(gridcolor='#30363d', showgrid=True, zeroline=False),
-        yaxis=dict(gridcolor='#30363d', showgrid=True, zeroline=False, title='Cumulative P&L'),
+        yaxis=dict(gridcolor='#30363d', showgrid=True, zeroline=False, title='Equity'),
         hovermode='x unified',
     )
-
     return json.dumps(fig.to_dict(), cls=PlotlyJSONEncoder)
 
-def _build_monthly_pnl(trades):
-    """Monthly P&L bar chart."""
-    from collections import OrderedDict
-    rows = trades.order_by('executed_at').values_list('executed_at', 'pnl')
-    if not rows:
+
+def _build_monthly_pnl(monthly_data: list[dict]):
+    """Build Plotly monthly P&L chart from trading-analytics data."""
+    if not monthly_data or 'error' in monthly_data[0]:
         return None
 
-    monthly = OrderedDict()
-    for executed_at, pnl in rows:
-        key = executed_at.strftime('%Y-%m')
-        monthly[key] = monthly.get(key, 0) + float(pnl)
-
-    months = list(monthly.keys())
-    values = [round(v, 2) for v in monthly.values()]
+    months = [f"{row['year']}-{str(row['month']).zfill(2)}" for row in monthly_data]
+    values = [row['net_profit'] for row in monthly_data]
     colors = ['#3fb950' if v >= 0 else '#f85149' for v in values]
 
     fig = go.Figure()

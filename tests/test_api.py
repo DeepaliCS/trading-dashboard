@@ -1,7 +1,7 @@
 import pytest
-from django.urls import reverse
+import unittest.mock
 from django.utils import timezone
-from trading.models import Trade, Symbol, CTraderCredentials, SyncLog
+from trading.models import Trade, CTraderCredentials, SyncLog
 
 
 @pytest.mark.django_db
@@ -68,18 +68,41 @@ class TestTradeDetailView:
 @pytest.mark.django_db
 class TestTradeStats:
     def test_returns_stats(self, auth_client, trade):
-        response = auth_client.get('/api/v1/trades/stats/')
-        assert response.status_code == 200
-        assert 'total_trades' in response.data
-        assert 'win_rate' in response.data
-        assert 'total_pnl' in response.data
+        with unittest.mock.patch(
+            'dashboard.services.analytics_client.AnalyticsClient.get_metrics',
+            return_value={
+                'total_trades': 1,
+                'winning_trades': 1,
+                'losing_trades': 0,
+                'win_rate': 100.0,
+                'total_net_profit': 19.5,
+                'expectancy': 19.5,
+                'profit_factor': 9999.0,
+                'sharpe_ratio': 0.0,
+                'max_drawdown': 0.0,
+            }
+        ):
+            response = auth_client.get('/api/v1/trades/stats/')
+            assert response.status_code == 200
 
     def test_stats_correct_values(self, auth_client, trade):
-        response = auth_client.get('/api/v1/trades/stats/')
-        assert response.data['total_trades'] == 1
-        assert response.data['wins'] == 1
-        assert response.data['losses'] == 0
-        assert response.data['win_rate'] == 100.0
+        with unittest.mock.patch(
+            'dashboard.services.analytics_client.AnalyticsClient.get_metrics',
+            return_value={
+                'total_trades': 1,
+                'winning_trades': 1,
+                'losing_trades': 0,
+                'win_rate': 100.0,
+                'total_net_profit': 19.5,
+                'expectancy': 19.5,
+                'profit_factor': 9999.0,
+                'sharpe_ratio': 0.0,
+                'max_drawdown': 0.0,
+            }
+        ):
+            response = auth_client.get('/api/v1/trades/stats/')
+            assert response.data['total_trades'] == 1
+            assert response.data['win_rate'] == 100.0
 
     def test_unauthenticated_returns_403(self, api_client):
         response = api_client.get('/api/v1/trades/stats/')
